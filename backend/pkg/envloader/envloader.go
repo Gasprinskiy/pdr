@@ -41,3 +41,17 @@ func (*envloader) MustGetInt(key string) int {
 
 	return intVal
 }
+
+func (*envloader) MustGetBool(key string) bool {
+	val, exists := os.LookupEnv(key)
+	if !exists {
+		log.Fatalf("variable %s not found:", key)
+	}
+
+	boolVal, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Fatalf("could not parse %s variable", key)
+	}
+
+	return boolVal
+}
