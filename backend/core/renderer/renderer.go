@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"image/png"
 	"os"
-	"pdr/backend/core/shared"
+	"pdr/backend/core/document"
 	"pdr/backend/pkg/render_pool"
 
 	"github.com/klippa-app/go-pdfium"
@@ -68,7 +68,7 @@ func (u *RendererUsecase) RenderPDFDocumentPages(ctx context.Context, param Rend
 		return err
 	}
 
-	document := shared.Document{
+	doc := document.Document{
 		ID:         u.cryptoTool.GenerateHexID(),
 		UpdateDate: updateDate,
 		PageCount:  pageCount,
@@ -77,7 +77,7 @@ func (u *RendererUsecase) RenderPDFDocumentPages(ctx context.Context, param Rend
 		Size:       fileSize,
 	}
 
-	if err := u.documentsRepo.CreateNewDocument(ctx, document); err != nil {
+	if err := u.documentsRepo.CreateNewDocument(ctx, doc); err != nil {
 		return err
 	}
 
@@ -98,10 +98,10 @@ func (u *RendererUsecase) RenderPDFDocumentPages(ctx context.Context, param Rend
 
 	go func() {
 		for res := range results {
-			page := shared.Page{
+			page := document.DocumentPage{
 				FilePath: res.FilePath,
 				Index:    res.Index,
-				DocID:    document.ID,
+				DocID:    doc.ID,
 			}
 
 			if err := u.documentsRepo.CreateNewPage(ctx, page); err != nil {

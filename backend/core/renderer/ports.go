@@ -2,12 +2,12 @@ package renderer
 
 import (
 	"context"
-	"pdr/backend/core/shared"
+	"pdr/backend/core/document"
 )
 
 type DocumentsRepo interface {
-	CreateNewDocument(ctx context.Context, doc shared.Document) error
-	CreateNewPage(ctx context.Context, page shared.Page) error
+	CreateNewDocument(ctx context.Context, doc document.Document) error
+	CreateNewPage(ctx context.Context, page document.DocumentPage) error
 }
 
 type Crypto interface {

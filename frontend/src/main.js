@@ -2,7 +2,7 @@ import './style.css';
 import './app.css';
 
 import logo from './assets/images/logo-universal.png';
-import {OpenShityModal} from '../wailsjs/go/app/App';
+import {OpenFileDialog} from '../wailsjs/go/app/App';
 
 document.querySelector('#app').innerHTML = `
     <img id="logo" class="logo">
@@ -29,7 +29,7 @@ window.greet = function () {
 
     // Call App.Greet(name)
     try {
-        OpenShityModal({
+        OpenFileDialog({
             FileExtensions: ["*.pdf"],
             LangCode: 0,
         })

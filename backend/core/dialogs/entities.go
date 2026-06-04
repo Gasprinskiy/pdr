@@ -51,10 +51,3 @@ func (p *OpenFileDialogParam) GetTitle() string {
 
 	return title
 }
-
-var AllFileExtensions = []struct {
-	Value  FileExtension
-	TSName string
-}{
-	{FileExtensionPdf, "PDF"},
-}
