@@ -5,7 +5,6 @@ import (
 	"pdr/backend/app"
 
 	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
@@ -14,9 +13,7 @@ import (
 var assets embed.FS
 
 func main() {
-	logger := logger.NewDefaultLogger()
-
-	app := app.NewApp(&logger)
+	app := app.NewApp()
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -31,7 +28,6 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		Logger: logger,
 	})
 
 	if err != nil {

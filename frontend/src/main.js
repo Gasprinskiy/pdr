@@ -36,6 +36,7 @@ window.greet = function () {
             .then((result) => {
                 // Update result with data back from App.Greet()
                 resultElement.innerText = result;
+                console.log()
             })
             .catch((err) => {
                 console.error(err);

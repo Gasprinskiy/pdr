@@ -1,0 +1,25 @@
+version: '3'
+
+dotenv: ['.env']
+
+tasks:
+  run:
+    desc: "RUN IN DEV MODE"
+    env:
+      IS_DEV: true
+    cmds:
+      - wails dev
+
+  build:linux:
+    desc: "Build for Linux x86"
+    env:
+      IS_DEV: false
+    cmds:
+      - wails build -platform linux/amd64 
+
+  build:windows:
+    desc: "Build for Windows x86"
+    env:
+      IS_DEV: false
+    cmds:
+      - wails build -platform windows/amd64

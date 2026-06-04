@@ -7,6 +7,7 @@ import (
 	"os"
 	"pdr/backend/core/document"
 	"pdr/backend/pkg/render_pool"
+	"pdr/backend/pkg/z_logger"
 
 	"github.com/klippa-app/go-pdfium"
 	"github.com/klippa-app/go-pdfium/requests"
@@ -14,6 +15,7 @@ import (
 )
 
 type RendererUsecase struct {
+	log           z_logger.Logger
 	renderPool    *render_pool.Pool
 	documentsRepo DocumentsRepo
 	//
@@ -25,6 +27,7 @@ type RendererUsecase struct {
 }
 
 func NewRendererUsecase(
+	log z_logger.Logger,
 	renderPool *render_pool.Pool,
 	documentsRepo DocumentsRepo,
 	//
@@ -34,6 +37,7 @@ func NewRendererUsecase(
 	outDir string,
 ) *RendererUsecase {
 	return &RendererUsecase{
+		log:           log,
 		renderPool:    renderPool,
 		documentsRepo: documentsRepo,
 		//

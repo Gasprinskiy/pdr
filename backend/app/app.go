@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"pdr/backend/adapters/output/sqlite"
 	"pdr/backend/adapters/output/wails"
@@ -15,26 +16,26 @@ import (
 	"pdr/backend/pkg/sqlite_db"
 	"pdr/backend/pkg/transaction"
 	"pdr/backend/pkg/worker"
+	"pdr/backend/pkg/z_logger"
+	"syscall"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/logger"
 )
 
 // App struct
 type App struct {
 	ctx            context.Context
-	logger         *logger.Logger
+	logger         z_logger.Logger
 	sessionManager transaction.SessionManager
 	//
 	dialogsUsecase  *dialogs.DialogsUsecase
 	renderedUsecase *renderer.RendererUsecase
+	//
+	renderPool *render_pool.Pool
 }
 
 // NewApp creates a new App application struct
-func NewApp(logger *logger.Logger) *App {
-	return &App{
-		logger: logger,
-	}
+func NewApp() *App {
+	return &App{}
 }
 
 // startup is called when the app starts. The context is saved
@@ -46,7 +47,7 @@ func (a *App) Startup(ctx context.Context) {
 
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("could not read cache dir: ", err)
 	}
 
 	appCacheDir := filepath.Join(cacheDir, envl.MustGetString("CACHE_DIR_NAME"))
@@ -61,6 +62,7 @@ func (a *App) Startup(ctx context.Context) {
 	db := sqlite_db.NewSqliteDb(appCacheDir, envl.MustGetString("DB_NAME")).Init()
 
 	maxTotal := envl.MustGetInt("RENDER_POOL_MAX_TOTAL")
+
 	renderPool := render_pool.NewPool(render_pool.PoolConfig{
 		WorkerBinPath: workerBinPath,
 		WaitDuration:  time.Duration(envl.MustGetInt("RENDER_POOL_WAIT_DURATION") * time.Now().Second()),
@@ -68,10 +70,26 @@ func (a *App) Startup(ctx context.Context) {
 		MaxIdle:       envl.MustGetInt("RENDER_POOL_MAX_IDLE"),
 		MaxTotal:      maxTotal,
 	})
+	defer renderPool.CloseInstances()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go a.onInterrupt(sigChan)
+
+	log := z_logger.NewLogger(
+		appCacheDir,
+		envl.MustGetString("LOG_FILE_NAME"),
+		envl.MustGetBool("IS_DEV"),
+	)
+
+	a.renderPool = renderPool
+	a.logger = log
 
 	a.sessionManager = transaction.NewSQLSessionManager(db)
 	a.dialogsUsecase = dialogs.NewDialogsUsecase(wails.NewDialogsOutput())
 	a.renderedUsecase = renderer.NewRendererUsecase(
+		log,
 		renderPool,
 		sqlite.NewDocumentsRepo(),
 		a_crypto.NewACrypto(envl.MustGetInt("CRYPTO_ID_COMPLEXITY")),
@@ -81,9 +99,13 @@ func (a *App) Startup(ctx context.Context) {
 	)
 }
 
-// Greet returns a greeting for the given name
+func (a *App) onInterrupt(sigChan <-chan os.Signal) {
+	<-sigChan
+	a.renderPool.CloseInstances()
+}
+
 func (a *App) OpenFileDialog(param dialogs.OpenFileDialogParam) (string, error) {
-	ctx, cancel := context.WithTimeout(a.ctx, time.Second*10)
+	ctx, cancel := context.WithTimeout(a.ctx, time.Second*1)
 	defer cancel()
 
 	return a.dialogsUsecase.OpenFileDialog(ctx, param)
