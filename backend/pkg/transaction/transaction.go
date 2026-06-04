@@ -53,7 +53,7 @@ func (t *sqlSession) Commit() error {
 	return err
 }
 
-func (t *sqlSession) Tx() interface{} {
+func (t *sqlSession) Tx() *sqlx.Tx {
 	return t.currentTx
 }
 

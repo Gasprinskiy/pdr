@@ -1,10 +1,12 @@
 package transaction
 
+import "github.com/jmoiron/sqlx"
+
 type Session interface {
 	Start() error
 	Rollback() error
 	Commit() error
-	Tx() interface{}
+	Tx() *sqlx.Tx
 	TxIsActive() bool
 	CreateNewSession() Session
 }
