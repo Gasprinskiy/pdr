@@ -2,6 +2,8 @@ package worker
 
 import (
 	_ "embed"
+	"errors"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -26,17 +28,25 @@ func NewWorker(dir, binName string) *Woker {
 func (w *Woker) Init() string {
 	fullPath := filepath.Join(w.dir, w.binName)
 
-	if _, err := os.Stat(fullPath); err == nil {
+	_, err := os.Stat(fullPath)
+	switch {
+	case err == nil:
 		return fullPath
+
+	case errors.Is(err, fs.ErrNotExist):
+		break
+
+	default:
+		log.Fatal("could not check worker file path: ", err)
 	}
 
 	f, err := os.Create(fullPath)
 	if err != nil {
-		log.Panic("could not create worker bin file: ", err)
+		log.Fatal("could not create worker bin file: ", err)
 	}
 
 	if _, err := f.Write(wokerBin); err != nil {
-		log.Panic("could not write worker bin file: ", err)
+		log.Fatal("could not write worker bin file: ", err)
 	}
 	w.fullPath = fullPath
 
