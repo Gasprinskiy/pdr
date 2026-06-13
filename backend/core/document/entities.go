@@ -13,8 +13,8 @@ type Document struct {
 }
 
 type DocumentPage struct {
-	ID       int    `db:"id"`
+	ID       *int   `db:"id"`
 	DocID    string `db:"doc_id"`
-	Index    int    `db:"index"`
+	Index    int    `db:"page_index"`
 	FilePath string `db:"file_path"`
 }

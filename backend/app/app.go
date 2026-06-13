@@ -4,20 +4,17 @@ import (
 	"context"
 	"log"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"pdr/backend/adapters/output/sqlite"
-	"pdr/backend/adapters/output/wails"
-	"pdr/backend/core/dialogs"
 	"pdr/backend/core/renderer"
-	"pdr/backend/pkg/a_crypto"
-	"pdr/backend/pkg/envloader"
-	"pdr/backend/pkg/render_pool"
-	"pdr/backend/pkg/sqlite_db"
-	"pdr/backend/pkg/transaction"
-	"pdr/backend/pkg/worker"
-	"pdr/backend/pkg/z_logger"
-	"syscall"
+	"pdr/backend/core/shared"
+	"pdr/pkg/a_crypto"
+	"pdr/pkg/envloader"
+	"pdr/pkg/render_pool"
+	"pdr/pkg/sqlite_db"
+	"pdr/pkg/transaction"
+	"pdr/pkg/worker"
+	"pdr/pkg/z_logger"
 	"time"
 )
 
@@ -27,7 +24,7 @@ type App struct {
 	logger         z_logger.Logger
 	sessionManager transaction.SessionManager
 	//
-	dialogsUsecase  *dialogs.DialogsUsecase
+	// dialogsUsecase  *dialogs.DialogsUsecase
 	renderedUsecase *renderer.RendererUsecase
 	//
 	renderPool *render_pool.Pool
@@ -70,12 +67,6 @@ func (a *App) Startup(ctx context.Context) {
 		MaxIdle:       envl.MustGetInt("RENDER_POOL_MAX_IDLE"),
 		MaxTotal:      maxTotal,
 	})
-	defer renderPool.CloseInstances()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	go a.onInterrupt(sigChan)
 
 	log := z_logger.NewLogger(
 		appCacheDir,
@@ -87,7 +78,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.logger = log
 
 	a.sessionManager = transaction.NewSQLSessionManager(db)
-	a.dialogsUsecase = dialogs.NewDialogsUsecase(wails.NewDialogsOutput())
+	// a.dialogsUsecase = dialogs.NewDialogsUsecase(wails.NewDialogsOutput())
 	a.renderedUsecase = renderer.NewRendererUsecase(
 		log,
 		renderPool,
@@ -95,18 +86,35 @@ func (a *App) Startup(ctx context.Context) {
 		a_crypto.NewACrypto(envl.MustGetInt("CRYPTO_ID_COMPLEXITY")),
 		envl.MustGetInt("RENDER_DPI"),
 		maxTotal,
-		workerBinPath,
+		appCacheDir,
 	)
 }
 
-func (a *App) onInterrupt(sigChan <-chan os.Signal) {
-	<-sigChan
-	a.renderPool.CloseInstances()
+func (a *App) OnInterrupt() {
+	if err := a.renderPool.CloseInstances(); err != nil {
+		a.logger.Error("could not close workers", err)
+	}
 }
 
-func (a *App) OpenFileDialog(param dialogs.OpenFileDialogParam) (string, error) {
-	ctx, cancel := context.WithTimeout(a.ctx, time.Second*1)
-	defer cancel()
+func (a *App) RenderPDFDocumentPages(param renderer.RenderPDFDocumentPagesParam) error {
+	ts := a.sessionManager.CreateSession()
 
-	return a.dialogsUsecase.OpenFileDialog(ctx, param)
+	if err := ts.Start(); err != nil {
+		a.logger.Error("could not create transaction", err)
+		return shared.ErrLocalStorage
+	}
+	defer ts.Rollback()
+
+	ctx := transaction.SetSession(a.ctx, ts)
+
+	if err := a.renderedUsecase.RenderPDFDocumentPages(ctx, param); err != nil {
+		return err
+	}
+
+	if err := ts.Commit(); err != nil {
+		a.logger.Error("could not commit transaction", err)
+		return shared.ErrLocalStorage
+	}
+
+	return nil
 }

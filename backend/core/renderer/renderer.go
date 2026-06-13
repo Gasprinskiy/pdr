@@ -3,12 +3,15 @@ package renderer
 import (
 	"context"
 	"fmt"
-	"image/png"
 	"os"
+	"path/filepath"
 	"pdr/backend/core/document"
-	"pdr/backend/pkg/render_pool"
-	"pdr/backend/pkg/z_logger"
+	"pdr/backend/core/shared"
+	"pdr/pkg/render_pool"
+	"pdr/pkg/z_logger"
+	"sync"
 
+	"github.com/chai2010/webp"
 	"github.com/klippa-app/go-pdfium"
 	"github.com/klippa-app/go-pdfium/requests"
 	"github.com/klippa-app/go-pdfium/responses"
@@ -52,24 +55,28 @@ func NewRendererUsecase(
 func (u *RendererUsecase) RenderPDFDocumentPages(ctx context.Context, param RenderPDFDocumentPagesParam) error {
 	file, err := os.Open(param.DocumentFullPath)
 	if err != nil {
-		return err
+		u.log.Error("could not open file", err)
+		return shared.ErrFileRead
 	}
 
 	stat, err := file.Stat()
 	if err != nil {
-		return err
+		u.log.Error("could not get file stats", err)
+		return shared.ErrFileRead
 	}
 
 	fileSize := stat.Size()
 	fileBytes := make([]byte, fileSize)
 	_, err = file.Read(fileBytes)
 	if err != nil {
-		return err
+		u.log.Error("could not read file", err)
+		return shared.ErrFileRead
 	}
 
 	pageCount, updateDate, err := u.getFileInfo(fileBytes)
 	if err != nil {
-		return err
+		u.log.Error("could not get file info", err)
+		return shared.ErrFileRead
 	}
 
 	doc := document.Document{
@@ -77,20 +84,33 @@ func (u *RendererUsecase) RenderPDFDocumentPages(ctx context.Context, param Rend
 		UpdateDate: updateDate,
 		PageCount:  pageCount,
 		FilePath:   param.DocumentFullPath,
-		Name:       param.DocumentFullPath,
+		Name:       param.TempName(),
 		Size:       fileSize,
 	}
 
 	if err := u.documentsRepo.CreateNewDocument(ctx, doc); err != nil {
-		return err
+		u.log.Error("could not create new document in repo", err)
+		return shared.ErrLocalStorage
+	}
+
+	imagesOutPath := filepath.Join(u.outDir, doc.ID)
+
+	if err := os.Mkdir(imagesOutPath, 0755); err != nil {
+		u.log.Error("could not create directory", err)
+		return shared.ErrFileRead
 	}
 
 	jobsChan := make(chan int, u.totalJobs)
 	errChan := make(chan error)
 	results := make(chan pageRenderInfo, u.totalJobs)
 
+	var once sync.Once
+	closeResultsChan := func() {
+		once.Do(func() { close(results) })
+	}
+
 	for range u.totalJobs {
-		go u.renderPages(u.outDir, &fileBytes, jobsChan, results, errChan)
+		go u.renderPages(imagesOutPath, &fileBytes, jobsChan, results, closeResultsChan)
 	}
 
 	go func() {
@@ -101,7 +121,14 @@ func (u *RendererUsecase) RenderPDFDocumentPages(ctx context.Context, param Rend
 	}()
 
 	go func() {
+		var count int
+
 		for res := range results {
+			if res.Err != nil {
+				errChan <- res.Err
+				break
+			}
+
 			page := document.DocumentPage{
 				FilePath: res.FilePath,
 				Index:    res.Index,
@@ -112,13 +139,26 @@ func (u *RendererUsecase) RenderPDFDocumentPages(ctx context.Context, param Rend
 				errChan <- err
 				break
 			}
+
+			count += 1
+			param.OnUpdate(OnUpdatePayload{
+				Count: count,
+				OutOf: pageCount,
+			})
 		}
 		close(errChan)
 	}()
 
 	if err := <-errChan; err != nil {
-		return err
+		close(results)
+
+		if err := os.RemoveAll(imagesOutPath); err != nil {
+			u.log.Error("could not remove images folder", err)
+		}
+		u.log.Error("error while render or create page", err)
+		return ErrWhileRender
 	}
+	close(results)
 
 	return nil
 }
@@ -157,7 +197,7 @@ func (u *RendererUsecase) renderPages(
 	fileBytes *[]byte,
 	jobsChan <-chan int,
 	results chan<- pageRenderInfo,
-	errChan chan<- error,
+	done func(),
 ) {
 	var (
 		err        error
@@ -170,9 +210,12 @@ func (u *RendererUsecase) renderPages(
 
 	defer func() {
 		if err != nil {
-			errChan <- err
+			results <- pageRenderInfo{
+				Err: err,
+			}
 			return
 		}
+		done()
 	}()
 
 	instance, err = u.renderPool.Instance()
@@ -202,13 +245,16 @@ func (u *RendererUsecase) renderPages(
 			return
 		}
 
-		filePath := fmt.Sprintf("%s/%d.png", outDir, index)
+		filePath := fmt.Sprintf("%s/%d.webp", outDir, index)
 		f, err = os.Create(filePath)
 		if err != nil {
 			return
 		}
 
-		err = png.Encode(f, pageRender.Result.Image)
+		err = webp.Encode(f, pageRender.Result.Image, &webp.Options{
+			Lossless: true,
+			Quality:  95,
+		})
 		if err != nil {
 			f.Close()
 			return
